@@ -435,6 +435,13 @@ function isoWeek(dt){const d=new Date(Date.UTC(dt.getFullYear(),dt.getMonth(),dt
   const f=new Date(Date.UTC(d.getUTCFullYear(),0,4));
   return 1+Math.round(((d-f)/864e5-3+((f.getUTCDay()+6)%7))/7);}
 function parseDate(v){
+  const d=_parseDateRaw(v);
+  if(!d)return null;
+  const y=d.getFullYear();
+  if(y<2020||y>2035)return null; // ignora datas digitadas erradas (ex.: ano 1900, 206)
+  return d;
+}
+function _parseDateRaw(v){
   if(v==null||v==="")return null;
   if(v instanceof Date)return d0(v);
   if(typeof v==="number"){const ep=new Date(Date.UTC(1899,11,30));ep.setUTCDate(ep.getUTCDate()+Math.floor(v));
@@ -482,9 +489,12 @@ function weeksList(){
   DB.acts.forEach(a=>{const h=homeMonday(a);if(h)ms.push(+h);});
   Object.keys(DB.records).forEach(k=>{const mk=k.split("|")[1];const d=parseDate(mk);if(d)ms.push(+mondayOf(d));});
   if(!ms.length)ms.push(+mondayOf(new Date()));
-  const min=new Date(Math.min(...ms));let max=new Date(Math.max(...ms));
-  const end=addDays(max,7*6); // 6 semanas à frente p/ reprogramação
-  const out=[];let c=new Date(min);while(c<=end){out.push(new Date(c));c=addDays(c,7);}
+  let min=new Date(Math.min(...ms));let max=new Date(Math.max(...ms));
+  let end=addDays(max,7*6); // 6 semanas à frente p/ reprogramação
+  // proteção: nunca gerar mais que ~130 semanas (2,5 anos), mesmo com dados estranhos
+  const MAXW=130;
+  if((end-min)/(7*864e5)>MAXW) end=addDays(min,7*MAXW);
+  const out=[];let c=new Date(min);while(c<=end&&out.length<MAXW+2){out.push(new Date(c));c=addDays(c,7);}
   return out;
 }
 function curMonday(){
