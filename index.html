@@ -675,8 +675,27 @@ document.getElementById("body").addEventListener("change",e=>{
   if(t.classList.contains("edt-ini")){act.ini=t.value||"";recompute(act,"ini");}
   else if(t.classList.contains("edt-fim")){act.fim=t.value||"";recompute(act,"fim");}
   else if(t.classList.contains("edt-dur")){act.dur=(t.value===""?"":Math.max(1,+t.value));recompute(act,"dur");}
-  save();render();
+  save();
+  // atualiza só os 3 campos + barra "P" desta atividade, sem re-render geral
+  syncRowDates(id);
+  // se a atividade mudou de semana, precisa re-render — faz só nesse caso
+  const h=homeMonday(act),mon=curMonday();
+  if(!h||+h!==+mon){render();}
 });
+function syncRowDates(id){
+  const act=DB.acts.find(x=>x.id===id);if(!act)return;
+  const iniEl=document.querySelector(`.edt-ini[data-id="${id}"]`);
+  const fimEl=document.querySelector(`.edt-fim[data-id="${id}"]`);
+  const durEl=document.querySelector(`.edt-dur[data-id="${id}"]`);
+  if(iniEl&&document.activeElement!==iniEl)iniEl.value=act.ini||"";
+  if(fimEl&&document.activeElement!==fimEl)fimEl.value=act.fim||"";
+  if(durEl&&document.activeElement!==durEl)durEl.value=act.dur||"";
+  // redesenha a barra P da linha
+  const mon=curMonday();const plan=plannedDays(act,mon);
+  const pRow=document.querySelector(`.edt-ini[data-id="${id}"]`)?.closest("tr");
+  if(pRow){const pcells=pRow.querySelectorAll("td.day");
+    pcells.forEach((td,i)=>{td.className="day"+(plan.includes(i)?" plan":"")+(i===6?" sun":"");});}
+}
 document.getElementById("body").addEventListener("focusout",e=>{
   const t=e.target;if(!t.classList||!t.classList.contains("pacedit"))return;
   const id=+t.dataset.id;const act=DB.acts.find(x=>x.id===id);if(!act)return;
@@ -706,41 +725,61 @@ document.getElementById("xlsFile").addEventListener("change",async e=>{
     const buf=await file.arrayBuffer();
     const wb=XLSX.read(buf,{type:"array",cellDates:true});
     const acts=parseWorkbook(wb);
-    if(!acts.length){alert("Não encontrei atividades. Verifique se a planilha tem colunas de Descrição e Início/Término.");return;}
-    if(!confirm(`Foram encontradas ${acts.length} atividades em "${file.name}".\\nImportar e substituir o plano atual? (as marcações atuais serão apagadas)`))return;
+    const skipped=window.__lastImportSkipped||0;
+    if(!acts.length){
+      const temLA=wb.SheetNames.some(n=>/lookahead/i.test(n));
+      alert("Nenhuma atividade importada.\n\n"+
+        (temLA?"":"• A aba \"LOOKAHEAD\" não foi encontrada.\n")+
+        "• Verifique se há a coluna \"DESCRIÇÃO DA ATIVIDADE\".\n"+
+        "• Só entram atividades com \"Everton Prates\" na coluna SUPERVISOR"+
+        (skipped?` (${skipped} linha(s) de outros supervisores foram ignoradas).`:"."));
+      return;}
+    if(!confirm(`Foram encontradas ${acts.length} atividades de Everton Prates na aba LOOKAHEAD`+
+      (skipped?` (${skipped} de outros supervisores ignoradas)`:"")+
+      `.\nImportar e substituir o plano atual? (as marcações atuais serão apagadas)`))return;
     DB.acts=acts;DB.records={};DB.cur=null;DB.meta.fonte=file.name;
     save();render();
     const ws=weeksList();alert(`Importado! ${acts.length} atividades em ${new Set(acts.map(a=>{const h=homeMonday(a);return h?+h:0;})).size} semana(s).`);
   }catch(err){alert("Erro ao ler o arquivo: "+err.message);}
   e.target.value="";
 });
-function norm(s){return String(s==null?"":s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");}
+function norm(s){return String(s==null?"":s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();}
 function parseWorkbook(wb){
+  // Preferir a aba "LOOKAHEAD"; se não existir, tenta a melhor aba
+  let target=wb.SheetNames.find(n=>/lookahead/i.test(n));
+  if(target){
+    const rows=XLSX.utils.sheet_to_json(wb.Sheets[target],{header:1,raw:false,cellDates:true,defval:null});
+    return parseRows(rows);
+  }
   let best=[];
   wb.SheetNames.forEach(name=>{
-    const ws=wb.Sheets[name];const rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,cellDates:true,defval:null});
+    const rows=XLSX.utils.sheet_to_json(wb.Sheets[name],{header:1,raw:false,cellDates:true,defval:null});
     const acts=parseRows(rows);if(acts.length>best.length)best=acts;});
   return best;
 }
+const SUPERVISOR_ALVO="everton prates"; // só importa atividades deste supervisor
 function parseRows(rows){
-  // localizar linha de cabeçalho
+  // localizar linha de cabeçalho (procura "descrição da atividade" ou "descri")
   let hi=-1,H=null;
-  for(let i=0;i<Math.min(rows.length,40);i++){
+  for(let i=0;i<Math.min(rows.length,60);i++){
     const r=rows[i]||[];if(r.some(c=>/descri/.test(norm(c)))){hi=i;H=r.map(norm);break;}}
   if(hi<0)return [];
   const find=(...pats)=>{for(let ci=0;ci<H.length;ci++){for(const p of pats){if(p.test(H[ci]))return ci;}}return -1;};
-  const cCod=find(/^cod/,/codigo/,/^id$/,/^item/);
-  const cDesc=find(/descri/,/atividade/,/pacote/);
-  const cIni=find(/inici/);
-  const cFim=find(/termino/,/^fim/,/termin/);
-  const cDur=find(/^dias$/,/dura/,/duracao/);
-  const cResp=find(/respons/);
+  const cCod =find(/^cod/,/codigo/,/^id$/,/^item/);
+  const cArea=find(/^area$/,/^área$/,/area/);
+  const cDesc=find(/descricao da atividade/,/descri/,/atividade/,/pacote/);
+  const cIni =find(/inici/);
+  const cFim =find(/termino/,/^fim/,/termin/,/conclus/);
+  const cDur =find(/^dias$/,/dura/,/duracao/);
+  const cSup =find(/supervisor/);
   if(cDesc<0)return [];
-  const out=[];let id=0;
+  const out=[];let id=0,pulados=0;
   for(let i=hi+1;i<rows.length;i++){
     const r=rows[i]||[];
+    // FILTRO: só supervisor Everton Prates (se a coluna existir)
+    if(cSup>=0){ if(norm(r[cSup])!==SUPERVISOR_ALVO){pulados++;continue;} }
     const codv=cCod>=0?r[cCod]:null;const descv=r[cDesc];
-    if((codv==null||codv==="")&&(descv==null||descv===""))continue;
+    const areaS=cArea>=0?String(r[cArea]==null?"":r[cArea]).trim():"";
     const descS=String(descv==null?"":descv).trim();
     if(!descS&&(codv==null||codv===""))continue;
     const iniv=cIni>=0?parseDate(r[cIni]):null;
@@ -749,11 +788,13 @@ function parseRows(rows){
     const err=/#n\/?a|#n\/?d|#ref|#value/i.test(descS)||descS==="";
     let dur=cDur>=0?r[cDur]:null;dur=(dur==null||dur==="")?"":(+dur||"");
     if(!dur&&iniv&&fimv)dur=Math.round((fimv-iniv)/864e5)+1;
-    const codStr=codv!=null?String(codv).trim():"";
-    const desc=(descS?desc0(codStr,descS):(codStr?codStr+" — (sem descrição)":"#N/A — descrição ausente"));
-    out.push({id:++id, desc:desc, resp:cResp>=0?String(r[cResp]||"").trim():"",
+    // Pacote = ÁREA — DESCRIÇÃO
+    const base=descS?(areaS?areaS+" — "+descS:descS):(codv?String(codv).trim()+" — (sem descrição)":"#N/A — descrição ausente");
+    out.push({id:++id, desc:base,
+      resp:"Everton Prates",
       ini:iniv?key(iniv):"", fim:fimv?key(fimv):"", dur:dur||"", err:err});
   }
+  window.__lastImportSkipped=pulados;
   return out;
 }
 function desc0(cod,desc){return cod?`[${cod}] ${desc}`:desc;}
