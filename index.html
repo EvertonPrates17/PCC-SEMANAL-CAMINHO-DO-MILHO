@@ -76,7 +76,7 @@ body{margin:0;background:#dfe3e8;color:var(--ink);font-family:var(--body);font-s
 /* table */
 .tw{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-size:12.5px;table-layout:fixed}
-col.c-item{width:36px}col.c-resp{width:118px}col.c-pac{width:330px}
+col.c-item{width:36px}col.c-resp{width:110px}col.c-area{width:120px}col.c-pac{width:290px}
 col.c-dt{width:116px}col.c-dur{width:56px}col.c-pe{width:24px}
 col.c-day{width:37px}col.c-pct{width:64px}col.c-cau{width:158px}col.c-obs{width:190px}
 thead th{background:var(--inpasa);color:#eaf0f7;font-weight:600;font-size:10.5px;letter-spacing:.4px;
@@ -101,6 +101,10 @@ input.edt::-webkit-inner-spin-button{opacity:.5}
 .pacedit{outline:0;border-radius:4px;cursor:text;padding:1px 3px;margin:-1px -3px;display:inline-block;min-width:40px}
 .pacedit:hover{background:#f5f7fa}
 .pacedit:focus{background:#fffef0;box-shadow:0 0 0 1.5px var(--inpasa)}
+td.area{font-weight:600;color:#3a424c}
+.areaedit{outline:0;border-radius:4px;cursor:text;padding:1px 3px;margin:-1px -3px;display:inline-block;min-width:30px;font-size:12px}
+.areaedit:hover{background:#f5f7fa}
+.areaedit:focus{background:#fffef0;box-shadow:0 0 0 1.5px var(--inpasa)}
 td.dur{text-align:center;font-family:var(--mono);font-weight:700}
 td.pe{text-align:center;font-weight:700;font-family:var(--mono);font-size:11px}
 td.pe.p{background:var(--z2);color:#4a5460}
@@ -307,14 +311,14 @@ tr.empty td{text-align:center;color:#8a929b;font-style:italic;padding:22px;backg
   <div class="tw">
     <table>
       <colgroup>
-        <col class="c-item"><col class="c-resp"><col class="c-pac"><col class="c-dt"><col class="c-dt">
+        <col class="c-item"><col class="c-resp"><col class="c-area"><col class="c-pac"><col class="c-dt"><col class="c-dt">
         <col class="c-dur"><col class="c-pe">
         <col class="c-day"><col class="c-day"><col class="c-day"><col class="c-day"><col class="c-day"><col class="c-day"><col class="c-day">
         <col class="c-pct"><col class="c-cau"><col class="c-obs">
       </colgroup>
       <thead>
         <tr>
-          <th rowspan="2">Item</th><th rowspan="2">Responsável</th><th rowspan="2">Pacote de Trabalho</th>
+          <th rowspan="2">Item</th><th rowspan="2">Responsável</th><th rowspan="2">Área</th><th rowspan="2">Pacote de Trabalho</th>
           <th rowspan="2">Início</th><th rowspan="2">Fim</th><th rowspan="2">Dur.<br>dias</th><th rowspan="2">P/E</th>
           <th colspan="7">Dias da semana</th>
           <th rowspan="2">% Exec</th><th rowspan="2">Causa</th><th rowspan="2">Problema / Observação</th>
@@ -397,7 +401,7 @@ async function cloudLoad(){
     const {data,error}=await SB.from("ppc_estado").select("dados").eq("id",DOC_ID).maybeSingle();
     if(error)throw error;
     if(data&&data.dados&&data.dados.acts){
-      DB=data.dados; if(!DB.meta)DB.meta={}; if(!DB.meta.logo)DB.meta.logo=LOGO_INPASA;
+      DB=migrateArea(data.dados); if(!DB.meta)DB.meta={}; if(!DB.meta.logo)DB.meta.logo=LOGO_INPASA;
       try{localStorage.setItem(KEY,JSON.stringify(DB));}catch(e){}
       render(); cloudStatus("☁ sincronizado","ok");
     }else{
@@ -464,7 +468,17 @@ function freshDB(){
   return {meta:{obra:"RONDONÓPOLIS",elab:"EVERTON PRATES",rev:"00",fonte:"PROGRAMAÇÃO_34.xlsx",
     blue:"#183870",logo:LOGO_INPASA}, acts:DEFAULT_ACTS.slice(), records:{}, cur:null};
 }
-function loadDB(){try{const j=JSON.parse(localStorage.getItem(KEY));return j&&j.acts?j:freshDB();}catch(e){return freshDB();}}
+function migrateArea(db){
+  if(db&&db.acts){db.acts.forEach(a=>{
+    if(a.area===undefined){
+      const i=(a.desc||"").indexOf(" — ");
+      if(i>0){a.area=a.desc.slice(0,i).trim();a.desc=a.desc.slice(i+3).trim();}
+      else a.area="";
+    }
+  });}
+  return db;
+}
+function loadDB(){try{const j=JSON.parse(localStorage.getItem(KEY));return migrateArea(j&&j.acts?j:freshDB());}catch(e){return migrateArea(freshDB());}}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(DB));flash();}catch(e){}scheduleCloudSave();}
 function flash(){const s=document.getElementById("saved");s.textContent="✓ salvo "+new Date().toLocaleTimeString("pt-BR").slice(0,5);
   clearTimeout(window._t);window._t=setTimeout(()=>s.textContent="",2500);}
@@ -602,7 +616,7 @@ function render(){
   renderRespFilter();
   const rows=rowsForWeek(mon,true);
   if(!rows.length){const filtered=respFilter().length?" com o filtro de responsável atual":"";
-    body.innerHTML=`<tr class="empty"><td colspan="17">Sem atividades nesta semana${filtered}. Use ◄ ► ou ajuste o filtro / importe um Excel.</td></tr>`;
+    body.innerHTML=`<tr class="empty"><td colspan="18">Sem atividades nesta semana${filtered}. Use ◄ ► ou ajuste o filtro / importe um Excel.</td></tr>`;
     ppcVal.innerHTML="—<small>%</small>";if(dashOn)renderDash();return;}
   const mk=key(mon);
   const causaOpts=['<option value="">—</option>'].concat(CAUSAS.map(c=>`<option value="${c[0]}">${c[0]} · ${c[1]}</option>`)).join("");
@@ -624,6 +638,7 @@ function render(){
       <tr class="rowP ${repro?'repro':''}">
         <td class="item" rowspan="2">${a.id}</td>
         <td rowspan="2"><input class="resp" data-id="${a.id}" placeholder="—" value="${(r.resp||a.resp||'')}"></td>
+        <td class="area" rowspan="2"><span class="areaedit" contenteditable="true" data-id="${a.id}">${(a.area||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')}</span></td>
         <td class="pac ${a.err?'err':''}" rowspan="2">${badge}<span class="pacedit" contenteditable="true" data-id="${a.id}">${(a.desc||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')}</span></td>
         <td class="dt" rowspan="2"><input type="date" class="edt edt-ini" data-id="${a.id}" value="${a.ini||''}"></td>
         <td class="dt" rowspan="2"><input type="date" class="edt edt-fim" data-id="${a.id}" value="${a.fim||''}"></td>
@@ -739,8 +754,10 @@ function syncRowDates(id){
     pcells.forEach((td,i)=>{td.className="day"+(plan.includes(i)?" plan":"")+(i===6?" sun":"");});}
 }
 document.getElementById("body").addEventListener("focusout",e=>{
-  const t=e.target;if(!t.classList||!t.classList.contains("pacedit"))return;
+  const t=e.target;if(!t.classList)return;
   const id=+t.dataset.id;const act=DB.acts.find(x=>x.id===id);if(!act)return;
+  if(t.classList.contains("areaedit")){act.area=(t.textContent||"").replace(/\s+/g," ").trim();save();return;}
+  if(!t.classList.contains("pacedit"))return;
   const txt=(t.textContent||"").replace(/\s+/g," ").trim();
   const wasErr=act.err;act.desc=txt;
   act.err=(txt===""||/#n\/?a|#n\/?d/i.test(txt));
@@ -830,9 +847,9 @@ function parseRows(rows){
     const err=/#n\/?a|#n\/?d|#ref|#value/i.test(descS)||descS==="";
     let dur=cDur>=0?r[cDur]:null;dur=(dur==null||dur==="")?"":(+dur||"");
     if(!dur&&iniv&&fimv)dur=Math.round((fimv-iniv)/864e5)+1;
-    // Pacote = ÁREA — DESCRIÇÃO
-    const base=descS?(areaS?areaS+" — "+descS:descS):(codv?String(codv).trim()+" — (sem descrição)":"#N/A — descrição ausente");
-    out.push({id:++id, desc:base,
+    // Área e Pacote (descrição) separados
+    const desc=descS?descS:(codv?String(codv).trim()+" — (sem descrição)":"#N/A — descrição ausente");
+    out.push({id:++id, area:areaS, desc:desc,
       resp:"Everton Prates",
       ini:iniv?key(iniv):"", fim:fimv?key(fimv):"", dur:dur||"", err:err});
   }
