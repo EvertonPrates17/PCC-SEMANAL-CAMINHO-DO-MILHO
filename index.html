@@ -447,6 +447,8 @@ function _parseDateRaw(v){
   if(typeof v==="number"){const ep=new Date(Date.UTC(1899,11,30));ep.setUTCDate(ep.getUTCDate()+Math.floor(v));
     return new Date(ep.getUTCFullYear(),ep.getUTCMonth(),ep.getUTCDate());}
   const s=String(v).trim();
+  let iso=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);        // ISO (yyyy-mm-dd) — data LOCAL, sem fuso
+  if(iso)return new Date(+iso[1],+iso[2]-1,+iso[3]);
   let m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
   if(m){let y=+m[3];if(y<100)y+=2000;return new Date(y,+m[2]-1,+m[1]);}
   m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})$/);
@@ -493,7 +495,8 @@ function homeMonday(a){
 function weeksList(){
   const s=ppcStartMon();
   const ms=[+s];
-  DB.acts.forEach(a=>{const h=homeMonday(a);if(h)ms.push(+h);});
+  DB.acts.forEach(a=>{const h=homeMonday(a);if(h)ms.push(+h);
+    const f=actFim(a);if(f){let fm=mondayOf(f);if(+fm<+s)fm=s;ms.push(+fm);}});
   Object.keys(DB.records).forEach(k=>{const mk=k.split("|")[1];const d=parseDate(mk);if(d){let m=mondayOf(d);if(+m<+s)m=s;ms.push(+m);}});
   let min=new Date(+s);let max=new Date(Math.max(...ms));
   let end=addDays(max,7*6); // 6 semanas à frente p/ reprogramação
@@ -542,13 +545,24 @@ function lastPrevCause(a,mon){
     const d=parseDate(mk);if(d&&mondayOf(d)<mon){if(!bestMk||mk>bestMk){if(DB.records[k].cau){bestMk=mk;cau=DB.records[k].cau;}}}});
   return cau;
 }
+function wasIncompleteBefore(a,mon){
+  let found=false,best=-1;
+  for(const k in DB.records){const[id,mk]=k.split("|");if(+id!==a.id)continue;
+    const d=parseDate(mk);if(d&&+mondayOf(d)<+mon){const p=DB.records[k].pct;if(p!==""){found=true;best=Math.max(best,+p);}}}
+  return found&&best<100;
+}
 function rowsForWeek(mon,applyFilter){
-  const normal=[],repro=[];
+  const normal=[],repro=[];const s=ppcStartMon();
   DB.acts.forEach(a=>{
     if(applyFilter&&!passResp(a))return;
-    const h=homeMonday(a);
-    if(h&&+h===+mon){normal.push({a,repro:false});}
-    else if(h&&+h<+mon&&!a.err&&bestPrevPct(a,mon)<100){repro.push({a,repro:true,saldo:100-bestPrevPct(a,mon)});}
+    if(a.err){ if(+mon===+s)normal.push({a,repro:false}); return; } // #N/A só na 1ª semana
+    const pd=plannedDays(a,mon);
+    if(pd.length){ normal.push({a,repro:false}); return; }   // aparece só onde tem execução
+    // reprogramação: janela já passou e ficou registro < 100
+    const fim=actFim(a);let fm=fim?mondayOf(fim):null;if(fm&&+fm<+s)fm=s;
+    if(fm&&+fm<+mon&&wasIncompleteBefore(a,mon)){
+      repro.push({a,repro:true,saldo:100-Math.max(0,bestPrevPct(a,mon))});
+    }
   });
   return normal.concat(repro);
 }
