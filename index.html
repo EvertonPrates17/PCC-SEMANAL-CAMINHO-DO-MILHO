@@ -483,30 +483,48 @@ function passResp(a){const f=respFilter();if(!f.length)return true;
   const v=respAny(a)||"__NONE__";return f.includes(v);}
 
 /* ---------- weeks ---------- */
-function homeMonday(a){const b=actIni(a)||actFim(a);return b?mondayOf(b):null;}
+const PPC_START = new Date(2026,7,17); // 17/08/2026 — início oficial do PPC (Semana 34)
+function ppcStartMon(){return mondayOf(PPC_START);}
+function homeMonday(a){
+  const b=actIni(a)||actFim(a); if(!b) return null;
+  const m=mondayOf(b), s=ppcStartMon();
+  return (+m < +s) ? s : m; // atividades que iniciam antes de 17/08 entram na Semana 34
+}
 function weeksList(){
-  const ms=[];
+  const s=ppcStartMon();
+  const ms=[+s];
   DB.acts.forEach(a=>{const h=homeMonday(a);if(h)ms.push(+h);});
-  Object.keys(DB.records).forEach(k=>{const mk=k.split("|")[1];const d=parseDate(mk);if(d)ms.push(+mondayOf(d));});
-  if(!ms.length)ms.push(+mondayOf(new Date()));
-  let min=new Date(Math.min(...ms));let max=new Date(Math.max(...ms));
+  Object.keys(DB.records).forEach(k=>{const mk=k.split("|")[1];const d=parseDate(mk);if(d){let m=mondayOf(d);if(+m<+s)m=s;ms.push(+m);}});
+  let min=new Date(+s);let max=new Date(Math.max(...ms));
   let end=addDays(max,7*6); // 6 semanas à frente p/ reprogramação
-  // proteção: nunca gerar mais que ~130 semanas (2,5 anos), mesmo com dados estranhos
-  const MAXW=130;
+  const MAXW=130; // proteção contra dados estranhos
   if((end-min)/(7*864e5)>MAXW) end=addDays(min,7*MAXW);
   const out=[];let c=new Date(min);while(c<=end&&out.length<MAXW+2){out.push(new Date(c));c=addDays(c,7);}
   return out;
 }
 function curMonday(){
-  const ws=weeksList();
-  if(DB.cur){const d=parseDate(DB.cur);if(d)return mondayOf(d);}
-  return ws[0];
+  const ws=weeksList();const start=ws[0],last=ws[ws.length-1];
+  let m=null;
+  if(DB.cur){const d=parseDate(DB.cur);if(d)m=mondayOf(d);}
+  if(!m||+m<+start)return start;   // nunca antes de 17/08 (Semana 34)
+  if(+m>+last)return last;
+  return m;
 }
 
 /* planned days (0..6) for activity within a display-week Monday */
 function plannedDays(a,mon){
   if(a.err)return [];
-  const ini=actIni(a),fim=actFim(a);if(!ini||!fim)return [];
+  let ini=actIni(a),fim=actFim(a);
+  if(!ini&&!fim)return [];
+  if(!ini)ini=fim; if(!fim)fim=ini;
+  const s=ppcStartMon();
+  if(+ini < +s){                    // começou antes do início do PPC → entra na Semana 34
+    ini=s;
+    if(+fim < +s){                  // já terminou no passado → mostra na 1ª semana com a duração
+      const d=(a.dur&&+a.dur>0)?Math.min(+a.dur,6):6;
+      fim=addDays(s,d-1);
+    }
+  }
   const out=[];for(let i=0;i<7;i++){const day=addDays(mon,i);if(day>=ini&&day<=fim)out.push(i);}
   return out;
 }
