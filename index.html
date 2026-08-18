@@ -743,17 +743,17 @@ document.getElementById("xlsFile").addEventListener("change",async e=>{
   }catch(err){alert("Erro ao ler o arquivo: "+err.message);}
   e.target.value="";
 });
-function norm(s){return String(s==null?"":s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();}
+function norm(s){return String(s==null?"":s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ").trim();}
 function parseWorkbook(wb){
   // Preferir a aba "LOOKAHEAD"; se não existir, tenta a melhor aba
   let target=wb.SheetNames.find(n=>/lookahead/i.test(n));
   if(target){
-    const rows=XLSX.utils.sheet_to_json(wb.Sheets[target],{header:1,raw:false,cellDates:true,defval:null});
+    const rows=XLSX.utils.sheet_to_json(wb.Sheets[target],{header:1,raw:true,cellDates:true,defval:null});
     return parseRows(rows);
   }
   let best=[];
   wb.SheetNames.forEach(name=>{
-    const rows=XLSX.utils.sheet_to_json(wb.Sheets[name],{header:1,raw:false,cellDates:true,defval:null});
+    const rows=XLSX.utils.sheet_to_json(wb.Sheets[name],{header:1,raw:true,cellDates:true,defval:null});
     const acts=parseRows(rows);if(acts.length>best.length)best=acts;});
   return best;
 }
@@ -766,12 +766,12 @@ function parseRows(rows){
   if(hi<0)return [];
   const find=(...pats)=>{for(let ci=0;ci<H.length;ci++){for(const p of pats){if(p.test(H[ci]))return ci;}}return -1;};
   const cCod =find(/^cod/,/codigo/,/^id$/,/^item/);
-  const cArea=find(/^area$/,/^área$/,/area/);
+  const cArea=find(/^area$/,/area/);
   const cDesc=find(/descricao da atividade/,/descri/,/atividade/,/pacote/);
-  const cIni =find(/inici/);
-  const cFim =find(/termino/,/^fim/,/termin/,/conclus/);
+  const cIni =find(/inicio previsto/,/inicio/,/inici/);
+  const cFim =find(/termino previsto/,/termino/,/^fim/,/termin/,/conclus/);
   const cDur =find(/^dias$/,/dura/,/duracao/);
-  const cSup =find(/supervisor/);
+  const cSup =find(/^supervisor$/,/supervisor/);
   if(cDesc<0)return [];
   const out=[];let id=0,pulados=0;
   for(let i=hi+1;i<rows.length;i++){
